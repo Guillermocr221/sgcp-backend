@@ -1,4 +1,5 @@
 const embarcacionesService = require('../services/embarcaciones.service');
+const db = require('../config/db');
 
 class EmbarcacionesController {
   
@@ -31,8 +32,43 @@ class EmbarcacionesController {
 
   // POST /api/embarcaciones
   async crear(req, res, next) {
+    let connection;
     try {
-      const nuevaEmbarcacion = await embarcacionesService.crear(req.body);
+      const { nombre, bandera, fecha_arribo, fecha_salida } = req.body;
+      
+      // Validar campo requerido
+      if (!nombre) {
+        return res.status(400).json({
+          ok: false,
+          message: 'El nombre de la embarcación es requerido'
+        });
+      }
+
+      connection = await db.getConnection();
+      
+      // Convertir fechas si son strings
+      let fechaArriboDate = fecha_arribo ? new Date(fecha_arribo) : null;
+      let fechaSalidaDate = fecha_salida ? new Date(fecha_salida) : null;
+      
+      // Llamar al procedimiento almacenado
+      await connection.execute(
+        `BEGIN sp_insert_embarcacion(:p_nombre, :p_bandera, :p_fecha_arribo, :p_fecha_salida); END;`,
+        {
+          p_nombre: nombre,
+          p_bandera: bandera || null,
+          p_fecha_arribo: fechaArriboDate,
+          p_fecha_salida: fechaSalidaDate
+        },
+        { autoCommit: true }
+      );
+
+      // Obtener la embarcación recién creada (usando el servicio para obtener)
+      const embarcacionesCreadas = await embarcacionesService.buscarPorNombre(nombre);
+      const nuevaEmbarcacion = embarcacionesCreadas.find(e => 
+        e.NOMBRE === nombre && 
+        e.BANDERA === (bandera || null)
+      ) || embarcacionesCreadas[0];
+
       res.status(201).json({
         ok: true,
         data: nuevaEmbarcacion,
@@ -40,14 +76,48 @@ class EmbarcacionesController {
       });
     } catch (error) {
       next(error);
+    } finally {
+      if (connection) await connection.close();
     }
   }
 
   // PUT /api/embarcaciones/:id
   async actualizar(req, res, next) {
+    let connection;
     try {
       const { id } = req.params;
-      const embarcacionActualizada = await embarcacionesService.actualizar(id, req.body);
+      const { nombre, bandera, fecha_arribo, fecha_salida } = req.body;
+      
+      // Validar campo requerido
+      if (!nombre) {
+        return res.status(400).json({
+          ok: false,
+          message: 'El nombre de la embarcación es requerido'
+        });
+      }
+
+      connection = await db.getConnection();
+      
+      // Convertir fechas si son strings
+      let fechaArriboDate = fecha_arribo ? new Date(fecha_arribo) : null;
+      let fechaSalidaDate = fecha_salida ? new Date(fecha_salida) : null;
+      
+      // Llamar al procedimiento almacenado
+      await connection.execute(
+        `BEGIN sp_update_embarcacion(:p_id_embarcacion, :p_nombre, :p_bandera, :p_fecha_arribo, :p_fecha_salida); END;`,
+        {
+          p_id_embarcacion: parseInt(id),
+          p_nombre: nombre,
+          p_bandera: bandera || null,
+          p_fecha_arribo: fechaArriboDate,
+          p_fecha_salida: fechaSalidaDate
+        },
+        { autoCommit: true }
+      );
+
+      // Obtener la embarcación actualizada (usando el servicio para obtener)
+      const embarcacionActualizada = await embarcacionesService.obtenerPorId(id);
+
       res.json({
         ok: true,
         data: embarcacionActualizada,
@@ -55,20 +125,39 @@ class EmbarcacionesController {
       });
     } catch (error) {
       next(error);
+    } finally {
+      if (connection) await connection.close();
     }
   }
 
   // DELETE /api/embarcaciones/:id
   async eliminar(req, res, next) {
+    let connection;
     try {
       const { id } = req.params;
-      const resultado = await embarcacionesService.eliminar(id);
+
+      connection = await db.getConnection();
+      
+      // Verificar que la embarcación exista antes de eliminar
+      await embarcacionesService.obtenerPorId(id);
+      
+      // Llamar al procedimiento almacenado
+      await connection.execute(
+        `BEGIN sp_delete_embarcacion(:p_id_embarcacion); END;`,
+        {
+          p_id_embarcacion: parseInt(id)
+        },
+        { autoCommit: true }
+      );
+
       res.json({
         ok: true,
-        mensaje: resultado.mensaje
+        mensaje: 'Embarcación eliminada exitosamente'
       });
     } catch (error) {
       next(error);
+    } finally {
+      if (connection) await connection.close();
     }
   }
 
